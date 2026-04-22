@@ -1,3 +1,33 @@
+.reconnect-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: #fff4e5;
+  color: #663c00;
+  font-size: 0.9rem;
+  border-bottom: 1px solid var(--app-border);
+
+  .reconnect-spin {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+    animation: reconnect-spin 1.2s linear infinite;
+  }
+}
+
+:host-context(.dark-mode) .reconnect-banner {
+  background: #3b2a10;
+  color: #ffd49a;
+}
+
+@keyframes reconnect-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .room-header {
   display: flex;
   justify-content: space-between;

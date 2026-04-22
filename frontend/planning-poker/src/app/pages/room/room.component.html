@@ -1,3 +1,9 @@
+@if (isReconnecting) {
+  <div class="reconnect-banner" role="status" aria-live="polite">
+    <mat-icon class="reconnect-spin">sync</mat-icon>
+    <span>Reconnecting…</span>
+  </div>
+}
 @if (room) {
   <div class="room-header">
     <div class="room-info">

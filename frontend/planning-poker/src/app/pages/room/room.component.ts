@@ -14,7 +14,7 @@ import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { Subscription } from 'rxjs';
-import { RoomService } from '../../services/room.service';
+import { ConnectionStatus, RoomService } from '../../services/room.service';
 import { Player, Room } from '../../models/room.model';
 import { InviteDialogComponent } from './invite-dialog.component';
 import { JoinDialogComponent } from './join-dialog.component';
@@ -43,7 +43,8 @@ import { JoinDialogComponent } from './join-dialog.component';
 export class RoomComponent implements OnInit, OnDestroy {
   room: Room | null = null;
   currentPlayerId: string | null = null;
-  private subscription!: Subscription;
+  isReconnecting = false;
+  private readonly subscriptions = new Subscription();
 
   constructor(
     private roomService: RoomService,
@@ -60,10 +61,16 @@ export class RoomComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.subscription = this.roomService.room$.subscribe(room => {
-      this.room = room;
-      this.currentPlayerId = this.roomService.getCurrentPlayerId();
-    });
+    this.subscriptions.add(
+      this.roomService.room$.subscribe(room => {
+        this.room = room;
+        this.currentPlayerId = this.roomService.getCurrentPlayerId();
+      }),
+    );
+
+    this.subscriptions.add(
+      this.roomService.status$.subscribe(status => this.onStatusChange(status)),
+    );
 
     this.roomService.reconnectToRoom(roomId).then(existingRoom => {
       if (!existingRoom) {
@@ -73,7 +80,19 @@ export class RoomComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.subscription?.unsubscribe();
+    this.subscriptions.unsubscribe();
+  }
+
+  private onStatusChange(status: ConnectionStatus): void {
+    this.isReconnecting = status === 'reconnecting';
+    if (status === 'dropped') {
+      this.snackBar.open(
+        'Disconnected from the room. It may have been closed.',
+        'OK',
+        { duration: 5000 },
+      );
+      this.router.navigate(['/']);
+    }
   }
 
   private showJoinDialog(roomId: string): void {

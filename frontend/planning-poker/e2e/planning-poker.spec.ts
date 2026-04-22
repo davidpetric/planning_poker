@@ -1,0 +1,539 @@
+import { test, expect, Browser, Page, Locator } from '@playwright/test';
+
+// ---------- helpers ----------
+
+async function newUserPage(browser: Browser): Promise<Page> {
+  const context = await browser.newContext();
+  return context.newPage();
+}
+
+async function createRoom(
+  page: Page,
+  playerName: string,
+  roomName = 'Sprint Planning',
+): Promise<string> {
+  await page.goto('/');
+  await page.getByRole('tab', { name: 'Create Room' }).click();
+  const panel = page.getByRole('tabpanel');
+  await panel.getByLabel('Your Name').fill(playerName);
+  await panel.getByLabel('Room Name (optional)').fill(roomName);
+  await panel.getByRole('button', { name: /Create Room/i }).click();
+  await page.waitForURL(/\/room\/[A-Z0-9]+/);
+  const match = page.url().match(/\/room\/([A-Z0-9]+)/);
+  expect(match).not.toBeNull();
+  return match![1];
+}
+
+async function joinRoomByUrl(page: Page, roomId: string, playerName: string): Promise<void> {
+  await page.goto(`/room/${roomId}`);
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel('Your Name').fill(playerName);
+  await dialog.getByRole('button', { name: /^Join$/ }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('.room-id')).toContainText(roomId);
+}
+
+async function joinRoomFromHome(page: Page, roomId: string, playerName: string): Promise<void> {
+  await page.goto('/');
+  await page.getByRole('tab', { name: 'Join Room' }).click();
+  const panel = page.getByRole('tabpanel');
+  await panel.getByLabel('Your Name').fill(playerName);
+  await panel.getByLabel('Room ID').fill(roomId);
+  await panel.getByRole('button', { name: /Join Room/i }).click();
+}
+
+function playerRow(page: Page, name: string): Locator {
+  return page.locator('.player-row', {
+    has: page.locator('.player-name', { hasText: new RegExp(`^${name}$`) }),
+  });
+}
+
+async function selectCard(page: Page, value: string): Promise<void> {
+  await page.locator('.poker-card', { hasText: new RegExp(`^${value}$`) }).click();
+}
+
+function cardByValue(page: Page, value: string): Locator {
+  return page.locator('.poker-card', { hasText: new RegExp(`^${value}$`) });
+}
+
+async function reveal(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /Show Votes/i }).click();
+}
+
+async function newVoting(page: Page): Promise<void> {
+  await page.getByRole('button', { name: /New Voting/i }).click();
+}
+
+// ============================================================
+// 1. Core multi-user synchronization
+// ============================================================
+
+test.describe('Core multi-user sync', () => {
+  test('two users see each other after one joins via shared link', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    const bob = await newUserPage(browser);
+
+    const roomId = await createRoom(alice, 'Alice');
+    await expect(alice.locator('.room-id')).toHaveText(`Room ID: ${roomId}`);
+    await expect(playerRow(alice, 'Alice')).toBeVisible();
+
+    await joinRoomByUrl(bob, roomId, 'Bob');
+
+    for (const p of [alice, bob]) {
+      await expect(playerRow(p, 'Alice')).toBeVisible();
+      await expect(playerRow(p, 'Bob')).toBeVisible();
+      await expect(playerRow(p, 'Alice').locator('.host-badge')).toBeVisible();
+      await expect(playerRow(p, 'Bob').locator('.host-badge')).toHaveCount(0);
+    }
+  });
+
+  test('three users vote; reveal shows values and average on all pages', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    const bob = await newUserPage(browser);
+    const carol = await newUserPage(browser);
+
+    const roomId = await createRoom(alice, 'Alice');
+    await joinRoomByUrl(bob, roomId, 'Bob');
+    await joinRoomByUrl(carol, roomId, 'Carol');
+
+    for (const p of [alice, bob, carol]) {
+      await expect(p.locator('.player-row')).toHaveCount(3);
+    }
+
+    await selectCard(alice, '5');
+    await selectCard(bob, '8');
+    await selectCard(carol, '13');
+
+    await reveal(alice);
+
+    for (const p of [alice, bob, carol]) {
+      await expect(p.locator('.average strong')).toHaveText('8.7');
+      await expect(playerRow(p, 'Alice').locator('.vote-value')).toHaveText('5');
+      await expect(playerRow(p, 'Bob').locator('.vote-value')).toHaveText('8');
+      await expect(playerRow(p, 'Carol').locator('.vote-value')).toHaveText('13');
+    }
+  });
+
+  test('New Voting resets everyone and re-enables card deck', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    const bob = await newUserPage(browser);
+    const roomId = await createRoom(alice, 'Alice');
+    await joinRoomByUrl(bob, roomId, 'Bob');
+
+    await selectCard(alice, '3');
+    await selectCard(bob, '13');
+    await reveal(alice);
+    await expect(alice.locator('.average strong')).toHaveText('8.0');
+
+    await newVoting(alice);
+
+    for (const p of [alice, bob]) {
+      await expect(p.locator('.voted-count')).toHaveText('0 / 2 voted');
+      await expect(p.locator('.card-deck')).toBeVisible();
+      await expect(playerRow(p, 'Alice').locator('.vote-empty')).toBeVisible();
+      await expect(playerRow(p, 'Bob').locator('.vote-empty')).toBeVisible();
+    }
+  });
+
+  test('vote-hidden state shows a check mark on other players while votes are hidden', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    const bob = await newUserPage(browser);
+    const roomId = await createRoom(alice, 'Alice');
+    await joinRoomByUrl(bob, roomId, 'Bob');
+
+    await selectCard(alice, '5');
+    await selectCard(bob, '8');
+
+    for (const p of [alice, bob]) {
+      await expect(p.locator('.voted-count')).toHaveText('2 / 2 voted');
+      await expect(playerRow(p, 'Alice').locator('.vote-check')).toBeVisible();
+      await expect(playerRow(p, 'Bob').locator('.vote-check')).toBeVisible();
+      // No values leaked while hidden
+      await expect(playerRow(p, 'Alice').locator('.vote-value')).toHaveCount(0);
+      await expect(playerRow(p, 'Bob').locator('.vote-value')).toHaveCount(0);
+    }
+  });
+});
+
+// ============================================================
+// 2. Voting UX edge cases
+// ============================================================
+
+test.describe('Voting UX', () => {
+  test('Show Votes is disabled until someone votes', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    await createRoom(alice, 'Alice');
+    const button = alice.getByRole('button', { name: /Show Votes/i });
+    await expect(button).toBeDisabled();
+    await selectCard(alice, '3');
+    await expect(button).toBeEnabled();
+  });
+
+  test('toggling the same card un-votes the player', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    await createRoom(alice, 'Alice');
+
+    await selectCard(alice, '8');
+    await expect(alice.locator('.voted-count')).toHaveText('1 / 1 voted');
+    await expect(playerRow(alice, 'Alice').locator('.vote-check')).toBeVisible();
+
+    await selectCard(alice, '8');
+    await expect(alice.locator('.voted-count')).toHaveText('0 / 1 voted');
+    await expect(playerRow(alice, 'Alice').locator('.vote-empty')).toBeVisible();
+  });
+
+  test('changing vote replaces previous value; only one card is selected', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    await createRoom(alice, 'Alice');
+
+    await selectCard(alice, '5');
+    await expect(cardByValue(alice, '5')).toHaveClass(/selected/);
+    await expect(alice.locator('.poker-card.selected')).toHaveCount(1);
+
+    await selectCard(alice, '13');
+    await expect(cardByValue(alice, '5')).not.toHaveClass(/selected/);
+    await expect(cardByValue(alice, '13')).toHaveClass(/selected/);
+    await expect(alice.locator('.poker-card.selected')).toHaveCount(1);
+    await expect(alice.locator('.voted-count')).toHaveText('1 / 1 voted');
+
+    await reveal(alice);
+    await expect(playerRow(alice, 'Alice').locator('.vote-value')).toHaveText('13');
+  });
+
+  test('? card is excluded from the numeric average', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    const bob = await newUserPage(browser);
+    const roomId = await createRoom(alice, 'Alice');
+    await joinRoomByUrl(bob, roomId, 'Bob');
+
+    await selectCard(alice, '13');
+    await selectCard(bob, '?');
+    await reveal(alice);
+
+    await expect(alice.locator('.average strong')).toHaveText('13.0');
+    await expect(playerRow(alice, 'Bob').locator('.vote-value')).toHaveText('?');
+  });
+
+  test('reveal with partial votes averages only the voters', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    const bob = await newUserPage(browser);
+    const carol = await newUserPage(browser);
+
+    const roomId = await createRoom(alice, 'Alice');
+    await joinRoomByUrl(bob, roomId, 'Bob');
+    await joinRoomByUrl(carol, roomId, 'Carol');
+
+    await selectCard(alice, '5');
+    await selectCard(bob, '3');
+    // Carol abstains
+    await reveal(alice);
+
+    for (const p of [alice, bob, carol]) {
+      await expect(p.locator('.average strong')).toHaveText('4.0');
+      await expect(playerRow(p, 'Carol').locator('.vote-empty')).toBeVisible();
+    }
+  });
+
+  test('no numeric votes produces a "-" average', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    const bob = await newUserPage(browser);
+    const roomId = await createRoom(alice, 'Alice');
+    await joinRoomByUrl(bob, roomId, 'Bob');
+
+    await selectCard(alice, '?');
+    await selectCard(bob, '?');
+    await reveal(alice);
+
+    await expect(alice.locator('.average strong')).toHaveText('-');
+  });
+
+  test('card deck is hidden after reveal and returns on New Voting', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    await createRoom(alice, 'Alice');
+    await selectCard(alice, '8');
+    await reveal(alice);
+    await expect(alice.locator('.card-deck')).toHaveCount(0);
+
+    await newVoting(alice);
+    await expect(alice.locator('.card-deck')).toBeVisible();
+    await expect(alice.locator('.poker-card')).toHaveCount(12);
+  });
+});
+
+// ============================================================
+// 3. Host vs non-host permissions
+// ============================================================
+
+test.describe('Host privileges', () => {
+  test('host sees remove buttons on others but not on self', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    const bob = await newUserPage(browser);
+    const roomId = await createRoom(alice, 'Alice');
+    await joinRoomByUrl(bob, roomId, 'Bob');
+
+    await expect(playerRow(alice, 'Alice').locator('.remove-btn')).toHaveCount(0);
+    await expect(playerRow(alice, 'Bob').locator('.remove-btn')).toBeVisible();
+  });
+
+  test('non-host sees no remove buttons anywhere', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    const bob = await newUserPage(browser);
+    const roomId = await createRoom(alice, 'Alice');
+    await joinRoomByUrl(bob, roomId, 'Bob');
+
+    await expect(bob.locator('.remove-btn')).toHaveCount(0);
+  });
+
+  test('host removes player; kicked page is torn down, host list updates', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    const bob = await newUserPage(browser);
+    const roomId = await createRoom(alice, 'Alice');
+    await joinRoomByUrl(bob, roomId, 'Bob');
+
+    await expect(playerRow(alice, 'Bob')).toBeVisible();
+    await playerRow(alice, 'Bob').locator('.remove-btn').click();
+
+    await expect(playerRow(alice, 'Bob')).toHaveCount(0);
+    await expect(alice.locator('.voted-count')).toHaveText('0 / 1 voted');
+    await expect(bob.locator('.player-list')).toHaveCount(0);
+  });
+});
+
+// ============================================================
+// 4. Session persistence / reconnection
+// ============================================================
+
+test.describe('Session persistence', () => {
+  test('reload after creating stays in room without showing join dialog', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    const roomId = await createRoom(alice, 'Alice');
+    await expect(playerRow(alice, 'Alice')).toBeVisible();
+
+    await alice.reload();
+
+    await expect(alice.getByRole('dialog')).toHaveCount(0);
+    await expect(alice.locator('.room-id')).toContainText(roomId);
+    await expect(playerRow(alice, 'Alice')).toBeVisible();
+  });
+
+  test('reload after joining stays in room without showing join dialog', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    const bob = await newUserPage(browser);
+    const roomId = await createRoom(alice, 'Alice');
+    await joinRoomByUrl(bob, roomId, 'Bob');
+
+    await bob.reload();
+
+    await expect(bob.getByRole('dialog')).toHaveCount(0);
+    await expect(bob.locator('.room-id')).toContainText(roomId);
+    await expect(playerRow(bob, 'Alice')).toBeVisible();
+    await expect(playerRow(bob, 'Bob')).toBeVisible();
+  });
+
+  test('navigating home and back via brand link re-joins the room via stored session', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    const roomId = await createRoom(alice, 'Alice');
+
+    await alice.locator('.brand').click();
+    await alice.waitForURL('**/');
+    await expect(alice.getByRole('tab', { name: 'Create Room' })).toBeVisible();
+
+    await alice.goto(`/room/${roomId}`);
+    await expect(alice.getByRole('dialog')).toHaveCount(0);
+    await expect(playerRow(alice, 'Alice')).toBeVisible();
+  });
+
+  test('direct URL in a fresh browser always shows the join dialog', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    const bob = await newUserPage(browser);
+    const roomId = await createRoom(alice, 'Alice');
+
+    await bob.goto(`/room/${roomId}`);
+    await expect(bob.getByRole('dialog')).toBeVisible();
+  });
+});
+
+// ============================================================
+// 5. Late-joiner state catch-up
+// ============================================================
+
+test.describe('Late joiners', () => {
+  test('late joiner sees existing hidden votes as check marks', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    const roomId = await createRoom(alice, 'Alice');
+    await selectCard(alice, '5');
+
+    const bob = await newUserPage(browser);
+    await joinRoomByUrl(bob, roomId, 'Bob');
+
+    await expect(playerRow(bob, 'Alice').locator('.vote-check')).toBeVisible();
+    await expect(playerRow(bob, 'Alice').locator('.vote-value')).toHaveCount(0);
+    await expect(bob.locator('.voted-count')).toHaveText('1 / 2 voted');
+  });
+
+  test('late joiner walks into a revealed room and sees the numbers', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    const roomId = await createRoom(alice, 'Alice');
+    await selectCard(alice, '8');
+    await reveal(alice);
+
+    const bob = await newUserPage(browser);
+    await joinRoomByUrl(bob, roomId, 'Bob');
+
+    await expect(playerRow(bob, 'Alice').locator('.vote-value')).toHaveText('8');
+    await expect(bob.locator('.card-deck')).toHaveCount(0);
+    await expect(bob.locator('.average strong')).toHaveText('8.0');
+  });
+});
+
+// ============================================================
+// 6. Leave and cleanup
+// ============================================================
+
+test.describe('Leaving', () => {
+  test('leaving returns to home and drops the player from others', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    const bob = await newUserPage(browser);
+    const roomId = await createRoom(alice, 'Alice');
+    await joinRoomByUrl(bob, roomId, 'Bob');
+
+    await bob.getByRole('button', { name: /Leave/i }).click();
+    await bob.waitForURL('**/');
+
+    await expect(playerRow(alice, 'Bob')).toHaveCount(0);
+    await expect(alice.locator('.voted-count')).toHaveText('0 / 1 voted');
+  });
+
+  test('after leaving, the same user can create another room', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    const firstRoom = await createRoom(alice, 'Alice', 'First');
+    await alice.getByRole('button', { name: /Leave/i }).click();
+    await alice.waitForURL('**/');
+
+    const secondRoom = await createRoom(alice, 'Alice', 'Second');
+    expect(secondRoom).not.toBe(firstRoom);
+    await expect(alice.locator('.room-id')).toContainText(secondRoom);
+    await expect(playerRow(alice, 'Alice')).toBeVisible();
+  });
+});
+
+// ============================================================
+// 7. Home-page form behavior and errors
+// ============================================================
+
+test.describe('Home page', () => {
+  test('Create Room button is disabled without a player name', async ({ browser }) => {
+    const page = await newUserPage(browser);
+    await page.goto('/');
+    await page.getByRole('tab', { name: 'Create Room' }).click();
+    const panel = page.getByRole('tabpanel');
+    const btn = panel.getByRole('button', { name: /Create Room/i });
+    await expect(btn).toBeDisabled();
+
+    await panel.getByLabel('Your Name').fill('Alice');
+    await expect(btn).toBeEnabled();
+  });
+
+  test('Join Room button is disabled until both name and room id are filled', async ({ browser }) => {
+    const page = await newUserPage(browser);
+    await page.goto('/');
+    await page.getByRole('tab', { name: 'Join Room' }).click();
+    const panel = page.getByRole('tabpanel');
+    const btn = panel.getByRole('button', { name: /Join Room/i });
+    await expect(btn).toBeDisabled();
+
+    await panel.getByLabel('Your Name').fill('Alice');
+    await expect(btn).toBeDisabled();
+
+    await panel.getByLabel('Room ID').fill('ABCDEF');
+    await expect(btn).toBeEnabled();
+  });
+
+  test('joining a nonexistent room from home shows an inline error', async ({ browser }) => {
+    const page = await newUserPage(browser);
+    await joinRoomFromHome(page, 'ZZZZZZ', 'Alice');
+    await expect(page.locator('.error-message')).toContainText(/not found/i);
+    await expect(page).toHaveURL(/\/$|\/(?!room\/)/);
+  });
+
+  test('room id is auto-uppercased when joining from home', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    const bob = await newUserPage(browser);
+    const roomId = await createRoom(alice, 'Alice');
+
+    await joinRoomFromHome(bob, roomId.toLowerCase(), 'Bob');
+    await bob.waitForURL(new RegExp(`/room/${roomId}$`));
+    await expect(playerRow(bob, 'Bob')).toBeVisible();
+  });
+});
+
+// ============================================================
+// 8. Join-dialog error paths
+// ============================================================
+
+test.describe('Join dialog', () => {
+  test('cancel on the join dialog sends the user home', async ({ browser }) => {
+    const page = await newUserPage(browser);
+    await page.goto('/room/NOPE12');
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await page.waitForURL('**/');
+    await expect(page.getByRole('tab', { name: 'Create Room' })).toBeVisible();
+  });
+
+  test('submitting the dialog for an invalid room shows a snackbar and navigates home', async ({ browser }) => {
+    const page = await newUserPage(browser);
+    await page.goto('/room/BADBAD');
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Your Name').fill('Ghost');
+    await dialog.getByRole('button', { name: /^Join$/ }).click();
+
+    await expect(page.locator('.mat-mdc-snack-bar-label, simple-snack-bar')).toContainText(/not found/i);
+    await page.waitForURL('**/');
+  });
+});
+
+// ============================================================
+// 9. Invite dialog
+// ============================================================
+
+test.describe('Invite dialog', () => {
+  test('shows the shareable link and room id, closes on Close', async ({ browser }) => {
+    const alice = await newUserPage(browser);
+    const roomId = await createRoom(alice, 'Alice');
+
+    await alice.getByRole('button', { name: /Invite/i }).click();
+    const dialog = alice.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+
+    await expect(dialog.getByLabel('Room Link')).toHaveValue(new RegExp(`/room/${roomId}$`));
+    await expect(dialog.getByLabel('Room ID')).toHaveValue(roomId);
+
+    await dialog.getByRole('button', { name: /Close/i }).click();
+    await expect(dialog).toBeHidden();
+  });
+});
+
+// ============================================================
+// 10. Theme toggle
+// ============================================================
+
+test.describe('Theme', () => {
+  test('theme toggle flips the dark-mode class on <html>', async ({ browser }) => {
+    const page = await newUserPage(browser);
+    await page.goto('/');
+
+    const initial = await page.evaluate(() =>
+      document.documentElement.classList.contains('dark-mode'),
+    );
+
+    await page.locator('.theme-toggle').click();
+
+    const toggled = await page.evaluate(() =>
+      document.documentElement.classList.contains('dark-mode'),
+    );
+    expect(toggled).toBe(!initial);
+  });
+});

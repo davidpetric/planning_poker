@@ -3,6 +3,15 @@ import { BehaviorSubject } from 'rxjs';
 import { Room } from '../models/room.model';
 
 const WS_URL = 'ws://localhost:5107/ws';
+const BASE_BACKOFF_MS = 1000;
+const MAX_BACKOFF_MS = 30_000;
+
+export type ConnectionStatus =
+  | 'idle'
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'dropped';
 
 interface ServerMessage {
   type: 'joined' | 'state' | 'error';
@@ -11,37 +20,53 @@ interface ServerMessage {
   message?: string;
 }
 
+class FatalHandshakeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'FatalHandshakeError';
+  }
+}
+
 @Injectable({ providedIn: 'root' })
 export class RoomService {
   private roomSubject = new BehaviorSubject<Room | null>(null);
   room$ = this.roomSubject.asObservable();
 
+  private statusSubject = new BehaviorSubject<ConnectionStatus>('idle');
+  status$ = this.statusSubject.asObservable();
+
   private socket: WebSocket | null = null;
   private currentPlayerId: string | null = null;
   private currentRoomId: string | null = null;
+  private reconnectAttempts = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private leaving = false;
 
   async createRoom(playerName: string, roomName: string): Promise<Room> {
-    const { playerId, room } = await this.connectAndHandshake({
+    const { playerId, room } = await this.initialHandshake({
       type: 'create',
       playerName,
       roomName: roomName || 'Planning Poker',
     });
     this.setIdentity(playerId, room.id);
     this.roomSubject.next(room);
+    this.statusSubject.next('connected');
     return room;
   }
 
   async joinRoom(roomId: string, playerName: string): Promise<Room | null> {
     try {
-      const { playerId, room } = await this.connectAndHandshake({
+      const { playerId, room } = await this.initialHandshake({
         type: 'join',
         roomId,
         playerName,
       });
       this.setIdentity(playerId, room.id);
       this.roomSubject.next(room);
+      this.statusSubject.next('connected');
       return room;
     } catch {
+      this.statusSubject.next('idle');
       return null;
     }
   }
@@ -59,16 +84,20 @@ export class RoomService {
     const storedPlayerId = sessionStorage.getItem(this.playerKey(roomId));
     if (!storedPlayerId) return null;
     try {
-      const { playerId, room } = await this.connectAndHandshake({
+      const { playerId, room } = await this.initialHandshake({
         type: 'reconnect',
         roomId,
         playerId: storedPlayerId,
       });
       this.setIdentity(playerId, room.id);
       this.roomSubject.next(room);
+      this.statusSubject.next('connected');
       return room;
-    } catch {
-      sessionStorage.removeItem(this.playerKey(roomId));
+    } catch (err) {
+      if (err instanceof FatalHandshakeError) {
+        sessionStorage.removeItem(this.playerKey(roomId));
+      }
+      this.statusSubject.next('idle');
       return null;
     }
   }
@@ -90,6 +119,8 @@ export class RoomService {
   }
 
   leaveRoom(): void {
+    this.leaving = true;
+    this.cancelReconnectTimer();
     this.send({ type: 'leave' });
     if (this.currentRoomId) {
       sessionStorage.removeItem(this.playerKey(this.currentRoomId));
@@ -99,6 +130,7 @@ export class RoomService {
     this.currentPlayerId = null;
     this.currentRoomId = null;
     this.roomSubject.next(null);
+    this.statusSubject.next('idle');
   }
 
   getCurrentPlayerId(): string | null {
@@ -127,7 +159,16 @@ export class RoomService {
     }
   }
 
-  private connectAndHandshake(
+  private initialHandshake(
+    message: object,
+  ): Promise<{ playerId: string; room: Room }> {
+    this.leaving = false;
+    this.cancelReconnectTimer();
+    this.statusSubject.next('connecting');
+    return this.openSocket(message);
+  }
+
+  private openSocket(
     handshake: object,
   ): Promise<{ playerId: string; room: Room }> {
     return new Promise((resolve, reject) => {
@@ -152,7 +193,7 @@ export class RoomService {
             resolve({ playerId: msg.playerId, room: msg.room });
           } else if (msg.type === 'error') {
             settled = true;
-            reject(new Error(msg.message ?? 'Handshake failed'));
+            reject(new FatalHandshakeError(msg.message ?? 'Handshake failed'));
             socket.close();
           }
           return;
@@ -176,9 +217,67 @@ export class RoomService {
         }
         if (this.socket === socket) {
           this.socket = null;
-          this.roomSubject.next(null);
+          this.handleDrop();
         }
       };
     });
+  }
+
+  private handleDrop(): void {
+    if (this.leaving) return;
+    if (!this.currentRoomId || !this.currentPlayerId) return;
+    this.statusSubject.next('reconnecting');
+    this.scheduleReconnect();
+  }
+
+  private scheduleReconnect(): void {
+    if (this.leaving) return;
+    if (this.reconnectTimer !== null) return;
+    const delay = Math.min(
+      MAX_BACKOFF_MS,
+      BASE_BACKOFF_MS * 2 ** this.reconnectAttempts,
+    );
+    this.reconnectAttempts++;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.attemptReconnect();
+    }, delay);
+  }
+
+  private async attemptReconnect(): Promise<void> {
+    const roomId = this.currentRoomId;
+    const playerId = this.currentPlayerId;
+    if (!roomId || !playerId || this.leaving) return;
+
+    try {
+      const { playerId: newId, room } = await this.openSocket({
+        type: 'reconnect',
+        roomId,
+        playerId,
+      });
+      this.setIdentity(newId, room.id);
+      this.roomSubject.next(room);
+      this.statusSubject.next('connected');
+      this.reconnectAttempts = 0;
+    } catch (err) {
+      if (err instanceof FatalHandshakeError) {
+        sessionStorage.removeItem(this.playerKey(roomId));
+        this.cancelReconnectTimer();
+        this.currentPlayerId = null;
+        this.currentRoomId = null;
+        this.roomSubject.next(null);
+        this.statusSubject.next('dropped');
+        return;
+      }
+      this.scheduleReconnect();
+    }
+  }
+
+  private cancelReconnectTimer(): void {
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnectAttempts = 0;
   }
 }
