@@ -47,6 +47,15 @@ export class RoomService {
   }
 
   async reconnectToRoom(roomId: string): Promise<Room | null> {
+    const current = this.roomSubject.value;
+    if (
+      current?.id === roomId &&
+      this.currentPlayerId &&
+      this.socket?.readyState === WebSocket.OPEN
+    ) {
+      return current;
+    }
+
     const storedPlayerId = sessionStorage.getItem(this.playerKey(roomId));
     if (!storedPlayerId) return null;
     try {

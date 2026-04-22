@@ -58,7 +58,12 @@ public sealed class WebSocketHandler
         {
             if (session is not null && playerId is not null)
             {
-                session.Connections.TryRemove(playerId, out _);
+                if (session.Connections.TryGetValue(playerId, out var current) &&
+                    ReferenceEquals(current, socket))
+                {
+                    session.Connections.TryRemove(playerId, out _);
+                    _log.LogInformation("Disconnected player {PlayerId} from room {RoomId}", playerId, session.Room.Id);
+                }
                 _store.RemoveRoomIfEmpty(session.Room.Id);
             }
             if (socket.State == WebSocketState.Open)
@@ -266,8 +271,12 @@ public sealed class WebSocketHandler
         }
     }
 
-    private Task SendJoined(WebSocket socket, string playerId, Room room, CancellationToken ct) =>
-        RoomStore.SendAsync(socket, new { type = "joined", playerId, room }, _json, ct);
+    private Task SendJoined(WebSocket socket, string playerId, Room room, CancellationToken ct)
+    {
+        _log.LogInformation("Player {PlayerId} connected to room {RoomId} (total players: {Count})",
+            playerId, room.Id, room.Players.Count);
+        return RoomStore.SendAsync(socket, new { type = "joined", playerId, room }, _json, ct);
+    }
 
     private Task Error(WebSocket socket, string message, CancellationToken ct) =>
         RoomStore.SendAsync(socket, new { type = "error", message }, _json, ct);

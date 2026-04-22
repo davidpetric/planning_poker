@@ -27,195 +27,145 @@
     display: flex;
     gap: 8px;
 
-    button {
-      mat-icon {
-        margin-right: 4px;
-      }
+    button mat-icon {
+      margin-right: 4px;
     }
   }
 }
 
-.table-area {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 32px 24px;
-  min-height: 400px;
+.players-panel {
+  max-width: 640px;
+  margin: 24px auto;
+  padding: 16px 20px 20px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+
+  .panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 12px;
+
+    h3 {
+      margin: 0;
+      font-weight: 500;
+      color: var(--app-text);
+    }
+
+    .voted-count {
+      font-size: 0.85rem;
+      color: var(--app-text-subtle);
+    }
+  }
+
+  .panel-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 16px;
+    margin-top: 16px;
+
+    .average {
+      color: var(--app-text);
+      font-size: 0.95rem;
+
+      strong {
+        font-size: 1.15rem;
+        margin-left: 4px;
+      }
+    }
+
+    button mat-icon {
+      margin-right: 6px;
+    }
+  }
 }
 
-.poker-table {
-  position: relative;
-  width: 100%;
-  max-width: 900px;
-  background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 50%, #1b5e20 100%);
-  border-radius: 160px;
-  border: 12px solid #5d4037;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), inset 0 2px 8px rgba(0, 0, 0, 0.2);
-  padding: 48px 40px;
-  min-height: 350px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
+.player-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--app-border);
 }
 
-.players-grid {
+.player-row {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 16px;
-  width: 100%;
-  margin-bottom: 24px;
-}
-
-.player-seat {
-  display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 6px;
-  position: relative;
-  min-width: 80px;
+  gap: 12px;
+  padding: 10px 4px;
+  border-bottom: 1px solid var(--app-border);
 
-  .player-card-slot {
-    width: 56px;
-    height: 76px;
+  .player-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+    min-width: 0;
+
+    .player-name {
+      font-size: 0.95rem;
+      color: var(--app-text);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .host-badge {
+      font-size: 16px;
+      width: 16px;
+      height: 16px;
+      color: #f5b301;
+    }
+
+    .you-chip {
+      font-size: 0.7rem;
+      padding: 2px 6px;
+      border-radius: 10px;
+      background: var(--app-primary);
+      color: #fff;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
   }
 
   .player-vote {
-    width: 100%;
-    height: 100%;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.2rem;
-    font-weight: 600;
-    transition: all 0.3s ease;
+    min-width: 40px;
+    text-align: right;
 
-    &.revealed {
-      background: white;
-      color: #1976d2;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-      font-size: 1.4rem;
+    .vote-value {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--app-primary);
     }
 
-    &.hidden {
-      background: #1565c0;
-      color: white;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-      border: 2px solid #90caf9;
+    .vote-check {
+      color: #2e7d32;
     }
 
-    &.empty {
-      background: rgba(255, 255, 255, 0.1);
-      color: rgba(255, 255, 255, 0.4);
-      border: 2px dashed rgba(255, 255, 255, 0.3);
+    .vote-empty {
+      color: var(--app-text-subtle);
     }
   }
 
-  .player-name {
-    color: white;
-    font-size: 0.8rem;
-    text-align: center;
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    max-width: 100px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .remove-btn {
+    width: 32px;
+    height: 32px;
+    line-height: 32px;
 
-    .host-badge {
-      font-size: 14px;
-      width: 14px;
-      height: 14px;
-      color: #ffd600;
+    mat-icon {
+      font-size: 18px;
+      width: 18px;
+      height: 18px;
+      color: #ef5350;
     }
   }
 
   &.is-current .player-name {
     font-weight: 600;
-    color: #ffd600;
-  }
-
-  .remove-btn {
-    position: absolute;
-    top: -8px;
-    right: -8px;
-    width: 24px;
-    height: 24px;
-    line-height: 24px;
-    opacity: 0;
-    transition: opacity 0.2s;
-
-    mat-icon {
-      font-size: 16px;
-      width: 16px;
-      height: 16px;
-      color: #ef5350;
-    }
-  }
-
-  &:hover .remove-btn {
-    opacity: 1;
   }
 }
 
-.table-center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-
-  .vote-status {
-    text-align: center;
-    color: white;
-
-    .voted-count {
-      font-size: 2rem;
-      font-weight: 300;
-      display: block;
-    }
-
-    .voted-label {
-      font-size: 0.9rem;
-      opacity: 0.8;
-    }
-  }
-
-  .reveal-btn, .reset-btn {
-    height: 48px;
-    padding: 0 32px;
-    font-size: 16px;
-
-    mat-icon {
-      margin-right: 8px;
-    }
-  }
-
-  .results {
-    text-align: center;
-
-    .average {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-
-      .average-label {
-        color: rgba(255, 255, 255, 0.8);
-        font-size: 0.9rem;
-      }
-
-      .average-value {
-        color: white;
-        font-size: 2.5rem;
-        font-weight: 300;
-      }
-    }
-  }
-}
-
-// Card Deck
 .card-deck {
   padding: 24px;
   text-align: center;
@@ -258,13 +208,13 @@
   }
 
   &:hover {
-    transform: translateY(-6px);
+    transform: translateY(-4px);
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
     border-color: var(--app-primary);
   }
 
   &.selected {
-    transform: translateY(-10px);
+    transform: translateY(-8px);
     border-color: var(--app-primary);
     background: var(--app-primary);
     box-shadow: 0 8px 20px rgba(25, 118, 210, 0.3);
@@ -276,9 +226,8 @@
 }
 
 @media (max-width: 600px) {
-  .poker-table {
-    border-radius: 24px;
-    padding: 24px 16px;
+  .players-panel {
+    margin: 16px 12px;
   }
 
   .poker-card {
