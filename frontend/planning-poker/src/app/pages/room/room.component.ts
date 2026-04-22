@@ -60,14 +60,15 @@ export class RoomComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const existingRoom = this.roomService.reconnectToRoom(roomId);
-    if (!existingRoom) {
-      this.showJoinDialog(roomId);
-    }
-
     this.subscription = this.roomService.room$.subscribe(room => {
       this.room = room;
       this.currentPlayerId = this.roomService.getCurrentPlayerId();
+    });
+
+    this.roomService.reconnectToRoom(roomId).then(existingRoom => {
+      if (!existingRoom) {
+        this.showJoinDialog(roomId);
+      }
     });
   }
 
@@ -81,9 +82,9 @@ export class RoomComponent implements OnInit, OnDestroy {
       width: '400px',
     });
 
-    dialogRef.afterClosed().subscribe((playerName: string) => {
+    dialogRef.afterClosed().subscribe(async (playerName: string) => {
       if (playerName) {
-        const room = this.roomService.joinRoom(roomId, playerName);
+        const room = await this.roomService.joinRoom(roomId, playerName);
         if (!room) {
           this.snackBar.open('Room not found', 'OK', { duration: 3000 });
           this.router.navigate(['/']);

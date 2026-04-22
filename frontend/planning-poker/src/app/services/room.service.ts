@@ -1,124 +1,95 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject } from 'rxjs';
-import { Player, Room, FIBONACCI_CARDS } from '../models/room.model';
+import { Room } from '../models/room.model';
+
+const WS_URL = 'ws://localhost:5107/ws';
+
+interface ServerMessage {
+  type: 'joined' | 'state' | 'error';
+  playerId?: string;
+  room?: Room;
+  message?: string;
+}
 
 @Injectable({ providedIn: 'root' })
 export class RoomService {
   private roomSubject = new BehaviorSubject<Room | null>(null);
   room$ = this.roomSubject.asObservable();
 
-  private channel: BroadcastChannel | null = null;
+  private socket: WebSocket | null = null;
   private currentPlayerId: string | null = null;
+  private currentRoomId: string | null = null;
 
-  private getStorageKey(roomId: string): string {
-    return `planning-poker-room-${roomId}`;
-  }
-
-  private generateId(): string {
-    return Math.random().toString(36).substring(2, 8).toUpperCase();
-  }
-
-  createRoom(playerName: string, roomName: string): Room {
-    const playerId = this.generateId();
-    this.currentPlayerId = playerId;
-
-    const room: Room = {
-      id: this.generateId(),
-      name: roomName || 'Planning Poker',
-      players: [
-        { id: playerId, name: playerName, vote: null, isHost: true }
-      ],
-      revealed: false,
-      cardValues: FIBONACCI_CARDS,
-    };
-
-    this.persistRoom(room);
-    this.subscribeToChannel(room.id);
+  async createRoom(playerName: string, roomName: string): Promise<Room> {
+    const { playerId, room } = await this.connectAndHandshake({
+      type: 'create',
+      playerName,
+      roomName: roomName || 'Planning Poker',
+    });
+    this.setIdentity(playerId, room.id);
     this.roomSubject.next(room);
-    sessionStorage.setItem('playerId', playerId);
     return room;
   }
 
-  joinRoom(roomId: string, playerName: string): Room | null {
-    const room = this.loadRoom(roomId);
-    if (!room) return null;
-
-    const existingPlayer = room.players.find(p => p.name === playerName);
-    if (existingPlayer) {
-      this.currentPlayerId = existingPlayer.id;
-      sessionStorage.setItem('playerId', existingPlayer.id);
-    } else {
-      const playerId = this.generateId();
-      this.currentPlayerId = playerId;
-      room.players.push({ id: playerId, name: playerName, vote: null, isHost: false });
-      sessionStorage.setItem('playerId', playerId);
-      this.persistRoom(room);
-      this.broadcastUpdate(room);
+  async joinRoom(roomId: string, playerName: string): Promise<Room | null> {
+    try {
+      const { playerId, room } = await this.connectAndHandshake({
+        type: 'join',
+        roomId,
+        playerName,
+      });
+      this.setIdentity(playerId, room.id);
+      this.roomSubject.next(room);
+      return room;
+    } catch {
+      return null;
     }
-
-    this.subscribeToChannel(room.id);
-    this.roomSubject.next(room);
-    return room;
   }
 
-  reconnectToRoom(roomId: string): Room | null {
-    const playerId = sessionStorage.getItem('playerId');
-    if (!playerId) return null;
-
-    const room = this.loadRoom(roomId);
-    if (!room) return null;
-
-    const player = room.players.find(p => p.id === playerId);
-    if (!player) return null;
-
-    this.currentPlayerId = playerId;
-    this.subscribeToChannel(room.id);
-    this.roomSubject.next(room);
-    return room;
+  async reconnectToRoom(roomId: string): Promise<Room | null> {
+    const storedPlayerId = sessionStorage.getItem(this.playerKey(roomId));
+    if (!storedPlayerId) return null;
+    try {
+      const { playerId, room } = await this.connectAndHandshake({
+        type: 'reconnect',
+        roomId,
+        playerId: storedPlayerId,
+      });
+      this.setIdentity(playerId, room.id);
+      this.roomSubject.next(room);
+      return room;
+    } catch {
+      sessionStorage.removeItem(this.playerKey(roomId));
+      return null;
+    }
   }
 
   vote(value: string): void {
-    const room = this.roomSubject.value;
-    if (!room || !this.currentPlayerId || room.revealed) return;
-
-    const player = room.players.find(p => p.id === this.currentPlayerId);
-    if (!player) return;
-
-    player.vote = player.vote === value ? null : value;
-    this.persistRoom(room);
-    this.broadcastUpdate(room);
-    this.roomSubject.next({ ...room });
+    this.send({ type: 'vote', value });
   }
 
   revealVotes(): void {
-    const room = this.roomSubject.value;
-    if (!room) return;
-
-    room.revealed = true;
-    this.persistRoom(room);
-    this.broadcastUpdate(room);
-    this.roomSubject.next({ ...room });
+    this.send({ type: 'reveal' });
   }
 
   resetVotes(): void {
-    const room = this.roomSubject.value;
-    if (!room) return;
-
-    room.players.forEach(p => p.vote = null);
-    room.revealed = false;
-    this.persistRoom(room);
-    this.broadcastUpdate(room);
-    this.roomSubject.next({ ...room });
+    this.send({ type: 'reset' });
   }
 
   removePlayer(playerId: string): void {
-    const room = this.roomSubject.value;
-    if (!room) return;
+    this.send({ type: 'remove', playerId });
+  }
 
-    room.players = room.players.filter(p => p.id !== playerId);
-    this.persistRoom(room);
-    this.broadcastUpdate(room);
-    this.roomSubject.next({ ...room });
+  leaveRoom(): void {
+    this.send({ type: 'leave' });
+    if (this.currentRoomId) {
+      sessionStorage.removeItem(this.playerKey(this.currentRoomId));
+    }
+    this.socket?.close();
+    this.socket = null;
+    this.currentPlayerId = null;
+    this.currentRoomId = null;
+    this.roomSubject.next(null);
   }
 
   getCurrentPlayerId(): string | null {
@@ -128,40 +99,77 @@ export class RoomService {
   isCurrentPlayerHost(): boolean {
     const room = this.roomSubject.value;
     if (!room || !this.currentPlayerId) return false;
-    const player = room.players.find(p => p.id === this.currentPlayerId);
-    return player?.isHost ?? false;
+    return room.players.find(p => p.id === this.currentPlayerId)?.isHost ?? false;
   }
 
-  private persistRoom(room: Room): void {
-    localStorage.setItem(this.getStorageKey(room.id), JSON.stringify(room));
+  private setIdentity(playerId: string, roomId: string): void {
+    this.currentPlayerId = playerId;
+    this.currentRoomId = roomId;
+    sessionStorage.setItem(this.playerKey(roomId), playerId);
   }
 
-  private loadRoom(roomId: string): Room | null {
-    const data = localStorage.getItem(this.getStorageKey(roomId));
-    return data ? JSON.parse(data) : null;
+  private playerKey(roomId: string): string {
+    return `planning-poker-player-${roomId}`;
   }
 
-  private subscribeToChannel(roomId: string): void {
-    this.channel?.close();
-    this.channel = new BroadcastChannel(`planning-poker-${roomId}`);
-    this.channel.onmessage = (event) => {
-      const updatedRoom: Room = event.data;
-      this.roomSubject.next(updatedRoom);
-    };
-  }
-
-  private broadcastUpdate(room: Room): void {
-    this.channel?.postMessage(room);
-  }
-
-  leaveRoom(): void {
-    const room = this.roomSubject.value;
-    if (room && this.currentPlayerId) {
-      this.removePlayer(this.currentPlayerId);
+  private send(msg: object): void {
+    if (this.socket?.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify(msg));
     }
-    this.channel?.close();
-    this.channel = null;
-    this.currentPlayerId = null;
-    this.roomSubject.next(null);
+  }
+
+  private connectAndHandshake(
+    handshake: object,
+  ): Promise<{ playerId: string; room: Room }> {
+    return new Promise((resolve, reject) => {
+      this.socket?.close();
+      const socket = new WebSocket(WS_URL);
+      this.socket = socket;
+
+      let settled = false;
+
+      socket.onopen = () => socket.send(JSON.stringify(handshake));
+
+      socket.onmessage = (event) => {
+        let msg: ServerMessage;
+        try {
+          msg = JSON.parse(event.data);
+        } catch {
+          return;
+        }
+        if (!settled) {
+          if (msg.type === 'joined' && msg.playerId && msg.room) {
+            settled = true;
+            resolve({ playerId: msg.playerId, room: msg.room });
+          } else if (msg.type === 'error') {
+            settled = true;
+            reject(new Error(msg.message ?? 'Handshake failed'));
+            socket.close();
+          }
+          return;
+        }
+        if (msg.type === 'state' && msg.room) {
+          this.roomSubject.next(msg.room);
+        }
+      };
+
+      socket.onerror = () => {
+        if (!settled) {
+          settled = true;
+          reject(new Error('WebSocket connection failed'));
+        }
+      };
+
+      socket.onclose = () => {
+        if (!settled) {
+          settled = true;
+          reject(new Error('WebSocket closed before handshake'));
+        }
+        if (this.socket === socket) {
+          this.socket = null;
+          this.roomSubject.next(null);
+        }
+      };
+    });
   }
 }

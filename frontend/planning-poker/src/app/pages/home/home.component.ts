@@ -37,20 +37,27 @@ export class HomeComponent {
     private router: Router,
   ) {}
 
-  createRoom(): void {
+  async createRoom(): Promise<void> {
     if (!this.playerName.trim()) return;
 
-    const room = this.roomService.createRoom(
-      this.playerName.trim(),
-      this.roomName.trim() || 'Planning Poker',
-    );
-    this.router.navigate(['/room', room.id]);
+    try {
+      const room = await this.roomService.createRoom(
+        this.playerName.trim(),
+        this.roomName.trim() || 'Planning Poker',
+      );
+      this.router.navigate(['/room', room.id]);
+    } catch (err) {
+      this.errorMessage = 'Could not reach the server. Is the backend running?';
+    }
   }
 
-  joinRoom(): void {
+  async joinRoom(): Promise<void> {
     if (!this.playerName.trim() || !this.roomId.trim()) return;
 
-    const room = this.roomService.joinRoom(this.roomId.trim().toUpperCase(), this.playerName.trim());
+    const room = await this.roomService.joinRoom(
+      this.roomId.trim().toUpperCase(),
+      this.playerName.trim(),
+    );
     if (room) {
       this.router.navigate(['/room', room.id]);
     } else {
