@@ -1,0 +1,63 @@
+.home-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 64px);
+  padding: 24px;
+}
+
+.hero {
+  text-align: center;
+  margin-bottom: 32px;
+
+  .hero-icon {
+    font-size: 64px;
+    width: 64px;
+    height: 64px;
+    color: var(--app-primary);
+    margin-bottom: 16px;
+  }
+
+  h1 {
+    font-size: 2.5rem;
+    font-weight: 300;
+    color: var(--app-text);
+    margin-bottom: 8px;
+  }
+
+  .subtitle {
+    font-size: 1.1rem;
+    color: var(--app-text-muted);
+  }
+}
+
+.action-card {
+  width: 100%;
+  max-width: 460px;
+}
+
+.tab-content {
+  padding: 24px 8px 8px;
+}
+
+.full-width {
+  width: 100%;
+}
+
+.action-btn {
+  margin-top: 8px;
+  height: 48px;
+  font-size: 16px;
+
+  mat-icon {
+    margin-right: 8px;
+  }
+}
+
+.error-message {
+  color: var(--app-danger);
+  font-size: 14px;
+  margin-bottom: 12px;
+  text-align: center;
+}

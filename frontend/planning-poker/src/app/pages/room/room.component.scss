@@ -1,0 +1,296 @@
+.room-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--app-border);
+  flex-wrap: wrap;
+  gap: 12px;
+
+  .room-info {
+    h2 {
+      margin: 0;
+      font-weight: 400;
+      font-size: 1.4rem;
+      color: var(--app-text);
+    }
+
+    .room-id {
+      font-size: 0.85rem;
+      color: var(--app-text-subtle);
+      font-family: monospace;
+    }
+  }
+
+  .room-actions {
+    display: flex;
+    gap: 8px;
+
+    button {
+      mat-icon {
+        margin-right: 4px;
+      }
+    }
+  }
+}
+
+.table-area {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 32px 24px;
+  min-height: 400px;
+}
+
+.poker-table {
+  position: relative;
+  width: 100%;
+  max-width: 900px;
+  background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 50%, #1b5e20 100%);
+  border-radius: 160px;
+  border: 12px solid #5d4037;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), inset 0 2px 8px rgba(0, 0, 0, 0.2);
+  padding: 48px 40px;
+  min-height: 350px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.players-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+  width: 100%;
+  margin-bottom: 24px;
+}
+
+.player-seat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  min-width: 80px;
+
+  .player-card-slot {
+    width: 56px;
+    height: 76px;
+  }
+
+  .player-vote {
+    width: 100%;
+    height: 100%;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    font-weight: 600;
+    transition: all 0.3s ease;
+
+    &.revealed {
+      background: white;
+      color: #1976d2;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+      font-size: 1.4rem;
+    }
+
+    &.hidden {
+      background: #1565c0;
+      color: white;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+      border: 2px solid #90caf9;
+    }
+
+    &.empty {
+      background: rgba(255, 255, 255, 0.1);
+      color: rgba(255, 255, 255, 0.4);
+      border: 2px dashed rgba(255, 255, 255, 0.3);
+    }
+  }
+
+  .player-name {
+    color: white;
+    font-size: 0.8rem;
+    text-align: center;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    .host-badge {
+      font-size: 14px;
+      width: 14px;
+      height: 14px;
+      color: #ffd600;
+    }
+  }
+
+  &.is-current .player-name {
+    font-weight: 600;
+    color: #ffd600;
+  }
+
+  .remove-btn {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    width: 24px;
+    height: 24px;
+    line-height: 24px;
+    opacity: 0;
+    transition: opacity 0.2s;
+
+    mat-icon {
+      font-size: 16px;
+      width: 16px;
+      height: 16px;
+      color: #ef5350;
+    }
+  }
+
+  &:hover .remove-btn {
+    opacity: 1;
+  }
+}
+
+.table-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+
+  .vote-status {
+    text-align: center;
+    color: white;
+
+    .voted-count {
+      font-size: 2rem;
+      font-weight: 300;
+      display: block;
+    }
+
+    .voted-label {
+      font-size: 0.9rem;
+      opacity: 0.8;
+    }
+  }
+
+  .reveal-btn, .reset-btn {
+    height: 48px;
+    padding: 0 32px;
+    font-size: 16px;
+
+    mat-icon {
+      margin-right: 8px;
+    }
+  }
+
+  .results {
+    text-align: center;
+
+    .average {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+
+      .average-label {
+        color: rgba(255, 255, 255, 0.8);
+        font-size: 0.9rem;
+      }
+
+      .average-value {
+        color: white;
+        font-size: 2.5rem;
+        font-weight: 300;
+      }
+    }
+  }
+}
+
+// Card Deck
+.card-deck {
+  padding: 24px;
+  text-align: center;
+  background: var(--app-surface);
+  border-top: 1px solid var(--app-border);
+
+  h3 {
+    margin: 0 0 16px;
+    font-weight: 400;
+    color: var(--app-text-muted);
+  }
+
+  .cards {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    max-width: 800px;
+    margin: 0 auto;
+  }
+}
+
+.poker-card {
+  width: 64px;
+  height: 88px;
+  border: 2px solid var(--app-card-border);
+  border-radius: 10px;
+  background: var(--app-card-bg);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+
+  .card-value {
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: var(--app-card-text);
+  }
+
+  &:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
+    border-color: var(--app-primary);
+  }
+
+  &.selected {
+    transform: translateY(-10px);
+    border-color: var(--app-primary);
+    background: var(--app-primary);
+    box-shadow: 0 8px 20px rgba(25, 118, 210, 0.3);
+
+    .card-value {
+      color: #ffffff;
+    }
+  }
+}
+
+@media (max-width: 600px) {
+  .poker-table {
+    border-radius: 24px;
+    padding: 24px 16px;
+  }
+
+  .poker-card {
+    width: 52px;
+    height: 72px;
+
+    .card-value {
+      font-size: 1.1rem;
+    }
+  }
+
+  .room-header {
+    padding: 12px 16px;
+  }
+}

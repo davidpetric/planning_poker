@@ -1,0 +1,59 @@
+<div class="home-container">
+  <div class="hero">
+    <mat-icon class="hero-icon">style</mat-icon>
+    <h1>Planning Poker</h1>
+    <p class="subtitle">Estimate your stories collaboratively with your team</p>
+  </div>
+
+  <mat-card class="action-card">
+    <mat-tab-group dynamicHeight>
+      <!-- Create Room Tab -->
+      <mat-tab label="Create Room">
+        <div class="tab-content">
+          <mat-form-field appearance="outline" class="full-width">
+            <mat-label>Your Name</mat-label>
+            <input matInput [(ngModel)]="playerName" placeholder="Enter your name" (keyup.enter)="createRoom()">
+            <mat-icon matPrefix>person</mat-icon>
+          </mat-form-field>
+
+          <mat-form-field appearance="outline" class="full-width">
+            <mat-label>Room Name (optional)</mat-label>
+            <input matInput [(ngModel)]="roomName" placeholder="Sprint Planning" (keyup.enter)="createRoom()">
+            <mat-icon matPrefix>meeting_room</mat-icon>
+          </mat-form-field>
+
+          <button mat-raised-button color="primary" class="full-width action-btn" (click)="createRoom()" [disabled]="!playerName.trim()">
+            <mat-icon>add_circle</mat-icon>
+            Create Room
+          </button>
+        </div>
+      </mat-tab>
+
+      <!-- Join Room Tab -->
+      <mat-tab label="Join Room">
+        <div class="tab-content">
+          <mat-form-field appearance="outline" class="full-width">
+            <mat-label>Your Name</mat-label>
+            <input matInput [(ngModel)]="playerName" placeholder="Enter your name">
+            <mat-icon matPrefix>person</mat-icon>
+          </mat-form-field>
+
+          <mat-form-field appearance="outline" class="full-width">
+            <mat-label>Room ID</mat-label>
+            <input matInput [(ngModel)]="roomId" placeholder="e.g. A1B2C3" (keyup.enter)="joinRoom()" style="text-transform: uppercase;">
+            <mat-icon matPrefix>vpn_key</mat-icon>
+          </mat-form-field>
+
+          @if (errorMessage) {
+            <p class="error-message">{{ errorMessage }}</p>
+          }
+
+          <button mat-raised-button color="primary" class="full-width action-btn" (click)="joinRoom()" [disabled]="!playerName.trim() || !roomId.trim()">
+            <mat-icon>login</mat-icon>
+            Join Room
+          </button>
+        </div>
+      </mat-tab>
+    </mat-tab-group>
+  </mat-card>
+</div>

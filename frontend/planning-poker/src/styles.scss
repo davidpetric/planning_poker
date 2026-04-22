@@ -1,0 +1,78 @@
+@use '@angular/material' as mat;
+
+@include mat.core();
+
+$light-theme: mat.define-theme((
+  color: (
+    theme-type: light,
+    primary: mat.$azure-palette,
+    tertiary: mat.$blue-palette,
+  ),
+  typography: (
+    brand-family: 'Roboto',
+    plain-family: 'Roboto',
+  ),
+));
+
+$dark-theme: mat.define-theme((
+  color: (
+    theme-type: dark,
+    primary: mat.$azure-palette,
+    tertiary: mat.$blue-palette,
+  ),
+  typography: (
+    brand-family: 'Roboto',
+    plain-family: 'Roboto',
+  ),
+));
+
+html {
+  @include mat.all-component-themes($light-theme);
+  @include mat.typography-hierarchy($light-theme);
+
+  // Semantic app tokens (light defaults)
+  --app-bg: #f5f5f5;
+  --app-surface: #ffffff;
+  --app-text: #333333;
+  --app-text-muted: #666666;
+  --app-text-subtle: #888888;
+  --app-border: #e0e0e0;
+  --app-primary: #1976d2;
+  --app-toolbar-bg: #1565c0;
+  --app-toolbar-text: #ffffff;
+  --app-danger: #f44336;
+  --app-card-bg: #ffffff;
+  --app-card-border: #dddddd;
+  --app-card-text: #333333;
+}
+
+html.dark-mode {
+  @include mat.all-component-colors($dark-theme);
+
+  --app-bg: #121212;
+  --app-surface: #1e1e1e;
+  --app-text: #e8e8e8;
+  --app-text-muted: #b0b0b0;
+  --app-text-subtle: #808080;
+  --app-border: #2d2d2d;
+  --app-primary: #64b5f6;
+  --app-toolbar-bg: #0d2a4a;
+  --app-toolbar-text: #ffffff;
+  --app-danger: #ef5350;
+  --app-card-bg: #f5f5f5;
+  --app-card-border: #555555;
+  --app-card-text: #1a1a1a;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  font-family: Roboto, "Helvetica Neue", sans-serif;
+  background-color: var(--app-bg);
+  color: var(--app-text);
+}

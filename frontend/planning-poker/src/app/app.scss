@@ -1,0 +1,28 @@
+.app-toolbar {
+  background: var(--app-toolbar-bg);
+  color: var(--app-toolbar-text);
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--app-toolbar-text);
+    text-decoration: none;
+    font-size: 1.2rem;
+    font-weight: 400;
+
+    mat-icon {
+      font-size: 28px;
+      width: 28px;
+      height: 28px;
+    }
+  }
+
+  .toolbar-spacer {
+    flex: 1 1 auto;
+  }
+
+  .theme-toggle {
+    color: var(--app-toolbar-text);
+  }
+}
