@@ -42,19 +42,22 @@ export class RoomService {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private leaving = false;
 
-  async createRoom(playerName: string, roomName: string): Promise<Room> {
+  async createRoom(playerName: string): Promise<Room> {
     const { playerId, room } = await this.initialHandshake({
       type: 'create',
       playerName,
-      roomName: roomName || 'Planning Poker',
     });
     this.setIdentity(playerId, room.id);
+    this.storeName(playerName);
     this.roomSubject.next(room);
     this.statusSubject.next('connected');
     return room;
   }
 
-  async joinRoom(roomId: string, playerName: string): Promise<Room | null> {
+  async joinRoom(
+    roomId: string,
+    playerName: string,
+  ): Promise<{ room: Room } | { error: string }> {
     try {
       const { playerId, room } = await this.initialHandshake({
         type: 'join',
@@ -62,12 +65,16 @@ export class RoomService {
         playerName,
       });
       this.setIdentity(playerId, room.id);
+      this.storeName(playerName);
       this.roomSubject.next(room);
       this.statusSubject.next('connected');
-      return room;
-    } catch {
+      return { room };
+    } catch (err) {
       this.statusSubject.next('idle');
-      return null;
+      const message = err instanceof FatalHandshakeError
+        ? err.message
+        : 'Could not connect to the server.';
+      return { error: message };
     }
   }
 
@@ -118,6 +125,15 @@ export class RoomService {
     this.send({ type: 'remove', playerId });
   }
 
+  configureRoom(opts: { cardValues?: string[]; hostOnlyControls?: boolean }): void {
+    this.send({ type: 'configure', ...opts });
+  }
+
+  renameSelf(name: string): void {
+    this.send({ type: 'rename', name });
+    this.storeName(name);
+  }
+
   leaveRoom(): void {
     this.leaving = true;
     this.cancelReconnectTimer();
@@ -147,10 +163,45 @@ export class RoomService {
     this.currentPlayerId = playerId;
     this.currentRoomId = roomId;
     sessionStorage.setItem(this.playerKey(roomId), playerId);
+    this.storeRoomId(roomId);
   }
 
   private playerKey(roomId: string): string {
     return `planning-poker-player-${roomId}`;
+  }
+
+  private readonly nameKey = 'planning-poker-name';
+  private readonly roomsKey = 'planning-poker-rooms';
+
+  getStoredName(): string | null {
+    try { return localStorage.getItem(this.nameKey); } catch { return null; }
+  }
+
+  private storeName(name: string): void {
+    try { localStorage.setItem(this.nameKey, name); } catch {}
+  }
+
+  getStoredRooms(): string[] {
+    try {
+      const raw = localStorage.getItem(this.roomsKey);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter((s): s is string => typeof s === 'string') : [];
+    } catch { return []; }
+  }
+
+  private storeRoomId(roomId: string): void {
+    try {
+      const list = [roomId, ...this.getStoredRooms().filter(id => id !== roomId)];
+      localStorage.setItem(this.roomsKey, JSON.stringify(list));
+    } catch {}
+  }
+
+  forgetRoom(roomId: string): void {
+    try {
+      const list = this.getStoredRooms().filter(id => id !== roomId);
+      localStorage.setItem(this.roomsKey, JSON.stringify(list));
+    } catch {}
   }
 
   private send(msg: object): void {

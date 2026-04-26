@@ -64,7 +64,6 @@ public sealed class WebSocketHandler
                     session.Connections.TryRemove(playerId, out _);
                     _log.LogInformation("Disconnected player {PlayerId} from room {RoomId}", playerId, session.Room.Id);
                 }
-                _store.RemoveRoomIfEmpty(session.Room.Id);
             }
             if (socket.State == WebSocketState.Open)
             {
@@ -130,15 +129,16 @@ public sealed class WebSocketHandler
                     return (null, null);
                 }
 
-                string playerId;
+                string? playerId = null;
+                bool nameTaken = false;
                 await session.Lock.WaitAsync(ct);
                 try
                 {
-                    var existing = session.Room.Players.FirstOrDefault(p =>
+                    var nameClash = session.Room.Players.Any(p =>
                         string.Equals(p.Name, playerName, StringComparison.OrdinalIgnoreCase));
-                    if (existing is not null)
+                    if (nameClash)
                     {
-                        playerId = existing.Id;
+                        nameTaken = true;
                     }
                     else
                     {
@@ -150,12 +150,18 @@ public sealed class WebSocketHandler
                             Vote = null,
                             IsHost = session.Room.Players.Count == 0,
                         });
+                        session.Connections[playerId] = socket;
                     }
-                    session.Connections[playerId] = socket;
                 }
                 finally { session.Lock.Release(); }
 
-                await SendJoined(socket, playerId, session.Room, ct);
+                if (nameTaken)
+                {
+                    await Error(socket, "That name is already taken in this room", ct);
+                    return (null, null);
+                }
+
+                await SendJoined(socket, playerId!, session.Room, ct);
                 await _store.BroadcastAsync(session, new { type = "state", room = session.Room }, ct);
                 return (session, playerId);
             }
@@ -226,12 +232,26 @@ public sealed class WebSocketHandler
                     break;
                 }
                 case "reveal":
+                {
+                    if (room.HostOnlyControls)
+                    {
+                        var caller = room.Players.FirstOrDefault(p => p.Id == playerId);
+                        if (caller is null || !caller.IsHost) { broadcast = false; break; }
+                    }
                     room.Revealed = true;
                     break;
+                }
                 case "reset":
+                {
+                    if (room.HostOnlyControls)
+                    {
+                        var caller = room.Players.FirstOrDefault(p => p.Id == playerId);
+                        if (caller is null || !caller.IsHost) { broadcast = false; break; }
+                    }
                     room.Revealed = false;
                     foreach (var p in room.Players) p.Vote = null;
                     break;
+                }
                 case "remove":
                 {
                     var targetId = root.TryGetProperty("playerId", out var pid) ? pid.GetString() : null;
@@ -256,6 +276,69 @@ public sealed class WebSocketHandler
                     {
                         room.Players[0].IsHost = true;
                     }
+                    break;
+                }
+                case "rename":
+                {
+                    var raw = root.TryGetProperty("name", out var n) ? n.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(raw)) { broadcast = false; break; }
+                    var trimmed = raw.Trim();
+                    if (trimmed.Length > 30) { broadcast = false; break; }
+                    var caller = room.Players.FirstOrDefault(p => p.Id == playerId);
+                    if (caller is null) { broadcast = false; break; }
+                    var clash = room.Players.Any(p =>
+                        p.Id != playerId &&
+                        string.Equals(p.Name, trimmed, StringComparison.OrdinalIgnoreCase));
+                    if (clash) { broadcast = false; break; }
+                    caller.Name = trimmed;
+                    break;
+                }
+                case "configure":
+                {
+                    var caller = room.Players.FirstOrDefault(p => p.Id == playerId);
+                    if (caller is null || !caller.IsHost)
+                    {
+                        broadcast = false;
+                        break;
+                    }
+
+                    var changed = false;
+
+                    if (root.TryGetProperty("cardValues", out var cv) && cv.ValueKind == JsonValueKind.Array)
+                    {
+                        var values = new List<string>();
+                        var seen = new HashSet<string>(StringComparer.Ordinal);
+                        foreach (var el in cv.EnumerateArray())
+                        {
+                            if (el.ValueKind != JsonValueKind.String) continue;
+                            var s = el.GetString();
+                            if (string.IsNullOrWhiteSpace(s)) continue;
+                            var trimmed = s.Trim();
+                            if (trimmed.Length > 8) continue;
+                            if (seen.Add(trimmed)) values.Add(trimmed);
+                            if (values.Count >= 16) break;
+                        }
+                        if (values.Count >= 2)
+                        {
+                            var newArr = values.ToArray();
+                            if (!room.CardValues.SequenceEqual(newArr))
+                            {
+                                room.CardValues = newArr;
+                                foreach (var p in room.Players) p.Vote = null;
+                                room.Revealed = false;
+                            }
+                            changed = true;
+                        }
+                    }
+
+                    if (root.TryGetProperty("hostOnlyControls", out var hoc) &&
+                        (hoc.ValueKind == JsonValueKind.True || hoc.ValueKind == JsonValueKind.False))
+                    {
+                        room.HostOnlyControls = hoc.GetBoolean();
+                        changed = true;
+                    }
+
+                    if (!changed) broadcast = false;
                     break;
                 }
                 default:

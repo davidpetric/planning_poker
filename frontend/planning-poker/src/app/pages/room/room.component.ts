@@ -1,4 +1,5 @@
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Component, OnInit, computed, effect, inject } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -13,11 +14,12 @@ import { MatBadgeModule } from '@angular/material/badge';
 import { MatDialog, MatDialogModule } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { Subscription } from 'rxjs';
 import { ConnectionStatus, RoomService } from '../../services/room.service';
 import { Player, Room } from '../../models/room.model';
 import { InviteDialogComponent } from './invite-dialog.component';
 import { JoinDialogComponent } from './join-dialog.component';
+import { SettingsDialogComponent } from './settings-dialog.component';
+import { RenameDialogComponent } from './rename-dialog.component';
 
 @Component({
   selector: 'app-room',
@@ -40,19 +42,31 @@ import { JoinDialogComponent } from './join-dialog.component';
   templateUrl: './room.component.html',
   styleUrl: './room.component.scss',
 })
-export class RoomComponent implements OnInit, OnDestroy {
-  room: Room | null = null;
-  currentPlayerId: string | null = null;
-  isReconnecting = false;
-  private readonly subscriptions = new Subscription();
+export class RoomComponent implements OnInit {
+  private readonly roomService = inject(RoomService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  private readonly snackBar = inject(MatSnackBar);
+  private readonly dialog = inject(MatDialog);
 
-  constructor(
-    private roomService: RoomService,
-    private route: ActivatedRoute,
-    private router: Router,
-    private snackBar: MatSnackBar,
-    private dialog: MatDialog,
-  ) {}
+  readonly room = toSignal(this.roomService.room$, { initialValue: null as Room | null });
+  readonly status = toSignal(this.roomService.status$, {
+    initialValue: 'idle' as ConnectionStatus,
+  });
+  readonly isReconnecting = computed(() => this.status() === 'reconnecting');
+
+  constructor() {
+    effect(() => {
+      if (this.status() === 'dropped') {
+        this.snackBar.open(
+          'Disconnected from the room. It may have been closed.',
+          'OK',
+          { duration: 5000 },
+        );
+        this.router.navigate(['/']);
+      }
+    });
+  }
 
   ngOnInit(): void {
     const roomId = this.route.snapshot.paramMap.get('id');
@@ -61,56 +75,34 @@ export class RoomComponent implements OnInit, OnDestroy {
       return;
     }
 
-    this.subscriptions.add(
-      this.roomService.room$.subscribe(room => {
-        this.room = room;
-        this.currentPlayerId = this.roomService.getCurrentPlayerId();
-      }),
-    );
-
-    this.subscriptions.add(
-      this.roomService.status$.subscribe(status => this.onStatusChange(status)),
-    );
-
-    this.roomService.reconnectToRoom(roomId).then(existingRoom => {
-      if (!existingRoom) {
-        this.showJoinDialog(roomId);
+    this.roomService.reconnectToRoom(roomId).then(async existingRoom => {
+      if (existingRoom) return;
+      const stored = this.roomService.getStoredName();
+      if (stored) {
+        const result = await this.roomService.joinRoom(roomId, stored);
+        if ('room' in result) return;
+        this.showJoinDialog(roomId, stored, result.error);
+        return;
       }
+      this.showJoinDialog(roomId);
     });
   }
 
-  ngOnDestroy(): void {
-    this.subscriptions.unsubscribe();
+  get currentPlayerId(): string | null {
+    return this.roomService.getCurrentPlayerId();
   }
 
-  private onStatusChange(status: ConnectionStatus): void {
-    this.isReconnecting = status === 'reconnecting';
-    if (status === 'dropped') {
-      this.snackBar.open(
-        'Disconnected from the room. It may have been closed.',
-        'OK',
-        { duration: 5000 },
-      );
-      this.router.navigate(['/']);
-    }
-  }
-
-  private showJoinDialog(roomId: string): void {
-    const dialogRef = this.dialog.open(JoinDialogComponent, {
-      disableClose: true,
-      width: '400px',
-    });
-
-    dialogRef.afterClosed().subscribe(async (playerName: string) => {
-      if (playerName) {
-        const room = await this.roomService.joinRoom(roomId, playerName);
-        if (!room) {
-          this.snackBar.open('Room not found', 'OK', { duration: 3000 });
-          this.router.navigate(['/']);
-        }
-      } else {
-        this.router.navigate(['/']);
-      }
+  private showJoinDialog(roomId: string, initialName?: string, initialError?: string): void {
+    const dialogRef = this.dialog.open<
+      JoinDialogComponent,
+      { roomId: string; initialName?: string; initialError?: string },
+      Room | null
+    >(
+      JoinDialogComponent,
+      { disableClose: true, width: '400px', data: { roomId, initialName, initialError } },
+    );
+    dialogRef.afterClosed().subscribe(room => {
+      if (!room) this.router.navigate(['/']);
     });
   }
 
@@ -119,16 +111,18 @@ export class RoomComponent implements OnInit, OnDestroy {
   }
 
   get currentPlayer(): Player | undefined {
-    return this.room?.players.find(p => p.id === this.currentPlayerId);
+    return this.room()?.players.find(p => p.id === this.currentPlayerId);
   }
 
   get otherPlayers(): Player[] {
-    return this.room?.players.filter(p => p.id !== this.currentPlayerId) ?? [];
+    const playerId = this.currentPlayerId;
+    return this.room()?.players.filter(p => p.id !== playerId) ?? [];
   }
 
   get averageVote(): string {
-    if (!this.room) return '-';
-    const numericVotes = this.room.players
+    const room = this.room();
+    if (!room) return '-';
+    const numericVotes = room.players
       .map(p => p.vote)
       .filter((v): v is string => v !== null && v !== '?')
       .map(Number)
@@ -140,7 +134,7 @@ export class RoomComponent implements OnInit, OnDestroy {
   }
 
   get votedCount(): number {
-    return this.room?.players.filter(p => p.vote !== null).length ?? 0;
+    return this.room()?.players.filter(p => p.vote !== null).length ?? 0;
   }
 
   selectCard(value: string): void {
@@ -162,7 +156,29 @@ export class RoomComponent implements OnInit, OnDestroy {
   showInviteDialog(): void {
     this.dialog.open(InviteDialogComponent, {
       width: '500px',
-      data: { roomId: this.room?.id },
+      data: { roomId: this.room()?.id },
+    });
+  }
+
+  showSettingsDialog(): void {
+    const room = this.room();
+    if (!room) return;
+    this.dialog.open(SettingsDialogComponent, {
+      width: '500px',
+      data: { cardValues: room.cardValues, hostOnlyControls: room.hostOnlyControls },
+    });
+  }
+
+  showRenameDialog(): void {
+    const room = this.room();
+    const playerId = this.currentPlayerId;
+    if (!room || !playerId) return;
+    const me = room.players.find(p => p.id === playerId);
+    if (!me) return;
+    const takenNames = room.players.filter(p => p.id !== playerId).map(p => p.name);
+    this.dialog.open(RenameDialogComponent, {
+      width: '400px',
+      data: { currentName: me.name, takenNames },
     });
   }
 
@@ -172,8 +188,9 @@ export class RoomComponent implements OnInit, OnDestroy {
   }
 
   getPlayerVoteDisplay(player: Player): string {
-    if (!this.room) return '';
-    if (this.room.revealed && player.vote) return player.vote;
+    const room = this.room();
+    if (!room) return '';
+    if (room.revealed && player.vote) return player.vote;
     if (player.vote) return '✓';
     return '';
   }

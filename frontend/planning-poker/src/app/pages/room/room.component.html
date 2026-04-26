@@ -1,105 +1,104 @@
-@if (isReconnecting) {
-  <div class="reconnect-banner" role="status" aria-live="polite">
-    <mat-icon class="reconnect-spin">sync</mat-icon>
-    <span>Reconnecting…</span>
-  </div>
+@if (isReconnecting()) {
+<div class="reconnect-banner" role="status" aria-live="polite">
+  <mat-icon class="reconnect-spin">sync</mat-icon>
+  <span>Reconnecting…</span>
+</div>
 }
-@if (room) {
-  <div class="room-header">
-    <div class="room-info">
-      <h2>{{ room.name }}</h2>
-      <span class="room-id">Room ID: {{ room.id }}</span>
-    </div>
-    <div class="room-actions">
-      <button mat-stroked-button (click)="showInviteDialog()" matTooltip="Invite players">
-        <mat-icon>person_add</mat-icon>
-        Invite
-      </button>
-      <button mat-stroked-button color="warn" (click)="leaveRoom()" matTooltip="Leave room">
-        <mat-icon>exit_to_app</mat-icon>
-        Leave
-      </button>
-    </div>
+@if (room(); as room) {
+<div class="room-header">
+  <div class="room-info">
+    <span class="room-id">Room ID: {{ room.id }}</span>
+  </div>
+  <div class="room-actions">
+    @if (isHost) {
+    <button mat-stroked-button (click)="showSettingsDialog()" matTooltip="Room settings">
+      <mat-icon>settings</mat-icon>
+      Settings
+    </button>
+    }
+    <button mat-stroked-button (click)="showInviteDialog()" matTooltip="Invite players">
+      <mat-icon>person_add</mat-icon>
+      Invite
+    </button>
+    <button mat-stroked-button color="warn" (click)="leaveRoom()" matTooltip="Leave room">
+      <mat-icon>exit_to_app</mat-icon>
+      Leave
+    </button>
+  </div>
+</div>
+
+<div class="players-panel">
+  <div class="panel-header">
+    <h3>People</h3>
+    <span class="voted-count">{{ votedCount }} / {{ room.players.length }} voted</span>
   </div>
 
-  <div class="players-panel">
-    <div class="panel-header">
-      <h3>Players</h3>
-      <span class="voted-count">{{ votedCount }} / {{ room.players.length }} voted</span>
-    </div>
-
-    <ul class="player-list">
-      @for (player of room.players; track player.id) {
-        <li class="player-row" [class.is-current]="player.id === currentPlayerId">
-          <div class="player-meta">
-            <span class="player-name">{{ player.name }}</span>
-            @if (player.isHost) {
-              <mat-icon class="host-badge" matTooltip="Host">star</mat-icon>
-            }
-            @if (player.id === currentPlayerId) {
-              <span class="you-chip">You</span>
-            }
-          </div>
-
-          <div class="player-vote">
-            @if (room.revealed && player.vote) {
-              <span class="vote-value">{{ player.vote }}</span>
-            } @else if (player.vote) {
-              <mat-icon class="vote-check" matTooltip="Voted">check_circle</mat-icon>
-            } @else {
-              <span class="vote-empty">—</span>
-            }
-          </div>
-
-          @if (isHost && player.id !== currentPlayerId) {
-            <button
-              mat-icon-button
-              class="remove-btn"
-              (click)="removePlayer(player.id)"
-              matTooltip="Remove player">
-              <mat-icon>close</mat-icon>
-            </button>
-          }
-        </li>
-      }
-    </ul>
-
-    <div class="panel-actions">
-      @if (!room.revealed) {
-        <button
-          mat-raised-button
-          color="primary"
-          (click)="revealVotes()"
-          [disabled]="votedCount === 0">
-          <mat-icon>visibility</mat-icon>
-          Show Votes
-        </button>
-      } @else {
-        <div class="average">
-          Average <strong>{{ averageVote }}</strong>
-        </div>
-        <button mat-raised-button color="accent" (click)="resetVotes()">
-          <mat-icon>refresh</mat-icon>
-          New Voting
-        </button>
-      }
-    </div>
-  </div>
-
-  @if (!room.revealed) {
-    <div class="card-deck">
-      <h3>Choose your estimate</h3>
-      <div class="cards">
-        @for (card of room.cardValues; track card) {
-          <button
-            class="poker-card"
-            [class.selected]="isCardSelected(card)"
-            (click)="selectCard(card)"
-            matTooltip="Select {{ card }}">
-            <span class="card-value">{{ card }}</span>
-          </button>
+  <ul class="player-list">
+    @for (player of room.players; track player.id) {
+    <li class="player-row" [class.is-current]="player.id === currentPlayerId">
+      <div class="player-meta">
+        <span class="player-name">{{ player.name }}</span>
+        @if (player.isHost) {
+        <mat-icon class="host-badge" matTooltip="Host">star</mat-icon>
+        }
+        @if (player.id === currentPlayerId) {
+        <button type="button" class="you-chip you-chip-button" (click)="showRenameDialog()"
+          matTooltip="Change your name" aria-label="Change your name">You</button>
         }
       </div>
+
+      <div class="player-vote">
+        @if (room.revealed && player.vote) {
+        <span class="vote-value">{{ player.vote }}</span>
+        } @else if (player.vote) {
+        <mat-icon class="vote-check" matTooltip="Voted">check_circle</mat-icon>
+        } @else {
+        <span class="vote-empty">—</span>
+        }
+      </div>
+
+      @if (isHost && player.id !== currentPlayerId) {
+      <button mat-icon-button class="remove-btn" (click)="removePlayer(player.id)" matTooltip="Remove player">
+        <mat-icon>close</mat-icon>
+      </button>
+      }
+    </li>
+    }
+  </ul>
+
+  <div class="panel-actions">
+    @if (!room.revealed) {
+    <button mat-raised-button color="primary" (click)="revealVotes()"
+      [disabled]="votedCount === 0 || (room.hostOnlyControls && !isHost)"
+      [matTooltip]="(room.hostOnlyControls && !isHost) ? 'Only the host can reveal votes' : ''">
+      <mat-icon>visibility</mat-icon>
+      Show Votes
+    </button>
+    } @else {
+    <div class="average">
+      Average <strong>{{ averageVote }}</strong>
     </div>
-  }
+    <button mat-raised-button color="accent" (click)="resetVotes()"
+      [disabled]="room.hostOnlyControls && !isHost"
+      [matTooltip]="(room.hostOnlyControls && !isHost) ? 'Only the host can start a new voting' : ''">
+      <mat-icon>refresh</mat-icon>
+      New Voting
+    </button>
+    }
+  </div>
+</div>
+
+@if (!room.revealed) {
+<div class="card-deck">
+  <h3>Choose your estimate</h3>
+  <div class="cards">
+    @for (card of room.cardValues; track card) {
+    <button class="poker-card" [class.selected]="isCardSelected(card)" (click)="selectCard(card)"
+      matTooltip="Select {{ card }}">
+      <span class="card-value">{{ card }}</span>
+    </button>
+    }
+  </div>
+</div>
+}
 }

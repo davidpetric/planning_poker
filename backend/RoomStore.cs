@@ -38,7 +38,7 @@ public sealed class RoomStore
             Name = string.IsNullOrWhiteSpace(roomName) ? "Planning Poker" : roomName,
             Players = new List<Player>(),
             Revealed = false,
-            CardValues = Cards.Fibonacci,
+            CardValues = Cards.Days,
         };
         var session = new RoomSession(room);
         _rooms[id] = session;
